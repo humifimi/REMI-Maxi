@@ -1,0 +1,182 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`SeverityBadge renders error severity with red color and 'Error' label by default 1`] = `
+<View
+  accessibilityLabel="Error: Error"
+  accessibilityRole="text"
+  style={
+    [
+      {
+        "alignItems": "center",
+        "alignSelf": "flex-start",
+        "borderRadius": 12,
+        "borderWidth": 1,
+        "flexDirection": "row",
+        "gap": 6,
+        "paddingHorizontal": 10,
+        "paddingVertical": 5,
+      },
+      {
+        "backgroundColor": "#EF444420",
+        "borderColor": "#EF4444",
+      },
+      false,
+    ]
+  }
+>
+  <View
+    style={
+      [
+        {
+          "borderRadius": 3,
+          "height": 6,
+          "width": 6,
+        },
+        {
+          "backgroundColor": "#EF4444",
+        },
+      ]
+    }
+  />
+  <Text
+    numberOfLines={1}
+    style={
+      [
+        {
+          "fontSize": 13,
+          "fontWeight": "600",
+        },
+        {
+          "color": "#EF4444",
+        },
+        false,
+      ]
+    }
+  >
+    Error
+  </Text>
+</View>
+`;
+
+exports[`SeverityBadge renders the \`small\` size variant with reduced padding/font 1`] = `
+<View
+  accessibilityLabel="Warning: Warning"
+  accessibilityRole="text"
+  style={
+    [
+      {
+        "alignItems": "center",
+        "alignSelf": "flex-start",
+        "borderRadius": 12,
+        "borderWidth": 1,
+        "flexDirection": "row",
+        "gap": 6,
+        "paddingHorizontal": 10,
+        "paddingVertical": 5,
+      },
+      {
+        "backgroundColor": "#EAB30820",
+        "borderColor": "#EAB308",
+      },
+      {
+        "borderRadius": 10,
+        "gap": 4,
+        "paddingHorizontal": 8,
+        "paddingVertical": 3,
+      },
+    ]
+  }
+>
+  <View
+    style={
+      [
+        {
+          "borderRadius": 3,
+          "height": 6,
+          "width": 6,
+        },
+        {
+          "backgroundColor": "#EAB308",
+        },
+      ]
+    }
+  />
+  <Text
+    numberOfLines={1}
+    style={
+      [
+        {
+          "fontSize": 13,
+          "fontWeight": "600",
+        },
+        {
+          "color": "#EAB308",
+        },
+        {
+          "fontSize": 11,
+        },
+      ]
+    }
+  >
+    Warning
+  </Text>
+</View>
+`;
+
+exports[`SeverityBadge renders warning severity with yellow color and 'Warning' label by default 1`] = `
+<View
+  accessibilityLabel="Warning: Warning"
+  accessibilityRole="text"
+  style={
+    [
+      {
+        "alignItems": "center",
+        "alignSelf": "flex-start",
+        "borderRadius": 12,
+        "borderWidth": 1,
+        "flexDirection": "row",
+        "gap": 6,
+        "paddingHorizontal": 10,
+        "paddingVertical": 5,
+      },
+      {
+        "backgroundColor": "#EAB30820",
+        "borderColor": "#EAB308",
+      },
+      false,
+    ]
+  }
+>
+  <View
+    style={
+      [
+        {
+          "borderRadius": 3,
+          "height": 6,
+          "width": 6,
+        },
+        {
+          "backgroundColor": "#EAB308",
+        },
+      ]
+    }
+  />
+  <Text
+    numberOfLines={1}
+    style={
+      [
+        {
+          "fontSize": 13,
+          "fontWeight": "600",
+        },
+        {
+          "color": "#EAB308",
+        },
+        false,
+      ]
+    }
+  >
+    Warning
+  </Text>
+</View>
+`;

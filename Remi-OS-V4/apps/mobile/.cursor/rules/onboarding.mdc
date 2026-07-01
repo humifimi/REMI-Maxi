@@ -1,0 +1,64 @@
+---
+description: Read me first if you are new to this repo or onboarding a new contributor. Lists the rules and docs to read in order, plus situational rules to pull in based on what you are touching.
+alwaysApply: false
+---
+
+# Onboarding — Where to Start
+
+This rule is the entry point for a new contributor (human or agent). It does not replicate other rules — it tells you which rules and docs to read, in what order, so you can be productive without breaking anything.
+
+## Read in this order (first day)
+
+1. **`README.md`** (repo root) — what the app is, how to run it locally, how to point at the backend, what the directory layout looks like.
+2. **`.cursor/rules/architecture.mdc`** — tech stack, code organization, the 8 non-negotiable rules. Read this before opening any source file.
+3. **`.cursor/rules/branch-hygiene.mdc`** — workflow: how to start a branch, how to commit, what the hooks block. Two rules total.
+4. **`.cursor/rules/documentation.mdc`** — pointers to the spec docs and the development log, plus when you're expected to update them.
+5. **`.cursor/rules/datetime-and-data-format-contracts.mdc`** — cross-wire contracts (datetime `timestamptz` columns, `DATE` columns, etc.) that have bitten the repo before. Required reading before touching anything that crosses the BE/FE boundary.
+
+That is the minimum to start contributing without producing a PR that needs to be rewritten.
+
+## Situational rules — read when relevant
+
+Pull these in based on what you are touching:
+
+| If you are touching... | Read |
+|---|---|
+| Any gesture-driven surface (calendar cards, map markers, list rows, anything draggable) | `.cursor/rules/gesture-conventions.mdc` — **always-apply, but worth pulling up explicitly when picking a gesture for new code** |
+| The calendar (any view, any drag, the chip row, the overlay arrows) | `.cursor/rules/forked-resource-calendar.mdc` and `.cursor/rules/bug-tag-index.mdc` |
+| Anything that calls the logistics linter (`lintSession`, conflict checks) | `.cursor/rules/logistics-linter.mdc` |
+| EAS builds, `app.json` version bumps, OTA updates | `.cursor/rules/eas-build-versioning.mdc` |
+| The Profit Calculator (`app/(public)/profit-calculator/*`) | `.cursor/rules/profit-model.mdc` |
+| Implementation-plan-driven work or starting a new feature with a written plan | `.cursor/rules/implementation-plans.mdc` and `.cursor/rules/plan-deviations.mdc` |
+| Writing/editing docs that reference sibling repos (REMIBackend, REMICustomer, Docs workspace) | `.cursor/rules/absolute-doc-paths.mdc` |
+
+## Sibling repos
+
+The full REMI product is three apps + a backend, all in the same workspace:
+
+- **REMIBackend** — Node.js/Express API. Source of truth for data, auth, business logic.
+- **REMITechnician** — this repo. React Native app for technicians.
+- **REMICustomer** — React Native app for customers.
+- **REMIDashboard** — React Native app for franchise owners (less actively developed).
+
+When a task involves the backend (new endpoint, schema change, payload shape), look in REMIBackend first. Cross-repo paths are absolute (see `absolute-doc-paths.mdc`).
+
+## The PLAN-DEVIATION convention
+
+You will see `PLAN-DEVIATION: 2026-XX-XX-some-id` markers in source code. They mark code that intentionally diverges from a plan. **Do not "fix" them back to match the plan** without reading the matching entry in `docs/PLAN-DEVIATIONS.md` first. The marker means "we shipped it this way on purpose." Read `.cursor/rules/plan-deviations.mdc` for the full convention.
+
+## Common new-contributor mistakes (and how to avoid them)
+
+- **Branching off `origin/main` when there is newer unmerged work.** The helper script defaults to branching off your current HEAD instead. Don't override that.
+- **Committing on `main` directly.** Both commit hooks deny this. Use `./scripts/check-branch-chunk.sh --create <branch-name>` first.
+- **Inline imports inside functions.** All imports go at the top of the file. (Architecture rule #4.)
+- **`any` in API response types.** Every endpoint hook specifies the response type. (Architecture rule #5.)
+- **Manual form state management.** Forms use React Hook Form + Zod. (Architecture rule #7.)
+- **Storing tokens anywhere but `expo-secure-store`.** Never AsyncStorage, never plain state. (Architecture rule #8.)
+- **Editing the three spec docs (`REMI-UI-Design-Brief.md`, `REMI-Feature-Spec.md`, `REMI-Production-Plan.md`).** They are reference material. If something is outdated, note the discrepancy in the development log instead.
+- **Skipping the development-log update after shipping something meaningful.** Append an entry — even a short one — so the next contributor can find what changed and why.
+
+## When you are stuck
+
+- Search the development log first: `grep -nE "<keyword>" docs/DEVELOPMENT-LOG.md`. Most "is this a known issue?" questions have an answer already.
+- Search the bug runbooks: `docs/REMI-Calendar-Bug-Runbook.md` and any sibling `*-Bug-Runbook.md` file. Use the tag index in `.cursor/rules/bug-tag-index.mdc` to find precedents.
+- Check `docs/PLAN-DEVIATIONS.md` for "we did this intentionally" notes that might explain weird-looking code.

@@ -1,0 +1,46 @@
+---
+description: Always use absolute paths when referencing files in OTHER repos (the Docs workspace, sibling REMI repos) so cross-repo prompts resolve correctly.
+globs:
+  - "docs/**/*.md"
+  - ".cursor/rules/*.mdc"
+  - ".cursor/plans/*.md"
+alwaysApply: false
+---
+
+# Absolute Paths for Cross-Repo References (REMITechnician)
+
+This repo lives at `/Users/jacegalloway/Documents/codebases/REMITechnician`. Cross-repo content (the Docs workspace, sibling REMI apps) lives elsewhere on disk and is **not** reachable with a bare relative path from here.
+
+## Hard rule
+
+When writing prompt text, plan content, dev-log entries, or any string that may be read in a different workspace, refer to cross-repo files using their **absolute path**.
+
+| Repo | Absolute prefix |
+|------|-----------------|
+| Docs | `/Users/jacegalloway/Documents/Docs/...` |
+| REMIBackend | `/Users/jacegalloway/Documents/codebases/REMIBackend/...` |
+| REMITechnician | `/Users/jacegalloway/Documents/codebases/REMITechnician/...` |
+| REMIDashboard | `/Users/jacegalloway/Documents/codebases/REMIDashboard/...` |
+| REMICustomer | `/Users/jacegalloway/Documents/codebases/REMICustomer/...` |
+
+The most common offender is `docs/pdf-implementation-plans/...` — that folder is in the Docs workspace, NOT here. Use `/Users/jacegalloway/Documents/Docs/docs/pdf-implementation-plans/...` instead.
+
+## What stays relative
+
+Do **not** absolutize:
+
+- This repo's own internal paths (e.g., `docs/implementation-plans/foo.md`, `app/...`, `src/...`) — those resolve correctly from this workspace root.
+- Markdown links like `[text](plans/foo.md)` — internal docs nav must stay relative to the source file.
+- URL-encoded site URLs (`?f=pdf-implementation-plans%2F...`).
+
+## Automation
+
+- **Script:** `scripts/absolutize-doc-paths.sh` rewrites bare `docs/pdf-implementation-plans/...` references to the absolute Docs path. Run manually:
+  ```
+  ./scripts/absolutize-doc-paths.sh                # scan whole repo
+  ./scripts/absolutize-doc-paths.sh path/to/file   # process one file
+  ./scripts/absolutize-doc-paths.sh --check        # exit 1 if any drift
+  ```
+- **Hook:** `.cursor/hooks/absolutize-paths.sh` runs on every `afterFileEdit` (Write/Edit). Any markdown/mdc file you touch with a bare cross-repo ref is auto-rewritten before the next tool call. Wired in `.cursor/hooks.json`.
+
+The hook is a safety net — write absolute paths up front when you can. Inline absolute paths are self-explanatory to humans reading the doc later.

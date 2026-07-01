@@ -1,0 +1,75 @@
+---
+description: App-wide gesture conventions for "move" vs "options" vs "primary action" across calendar, map, and any future drag-driven surface.
+globs:
+alwaysApply: false
+---
+
+# Gesture Conventions
+
+This rule codifies the **app-wide** mapping between gestures and intent for any surface where a user can interact with discrete objects (appointment cards on the calendar, appointment markers on the map, list rows in a side drawer, etc.). It exists because the agent and the user have both gotten the calendar's gesture model wrong multiple times — this is the canonical reference.
+
+## The convention
+
+| Gesture | Intent | Examples in the app today |
+|---|---|---|
+| **Single tap** | **Primary action** — usually "open detail" or "select" | Tap a calendar card → open `AppointmentDetailSheet`. Tap a map marker → open detail flow. Tap a tech avatar in the calendar header → toggle multi-select. |
+| **Double-tap-and-hold** | **Move** — pick up the object and drag it to a new place | The calendar's `DraggableEvent` uses "doubleTap drag-init" to pick up appointment cards (see `vendor/react-native-resource-calendar/dist/index.js` comments at lines 3339, 3396, 3408, 3665, plus the `doubleTapHandledRef` state machine at 2046-2245). LDM-WAVE-2 CHUNK-3 (`DRAG-2-PIN`) brings the same mechanism to map markers. |
+| **Long-press** | **Options / context menu** — open a menu of actions for this object | iOS-standard "press and hold for options" pattern. *(The map surface is an exception — long-press there is the drag activator per the 2026-05-17 PLAN-DEVIATION; see the Map MARKERS section below.)* |
+| **Double-tap (no hold)** | View-switch / focus | Double-tap a tech avatar in the calendar header → enter Workweek view for that tech. |
+| **Pinch / pan on background** | Zoom / scroll the surface | Map pan + pinch. Calendar pinch-to-zoom-density. |
+
+## Exception: the calendar's tech AVATARS use long-press for reorder
+
+The avatar strip at the top of the franchise calendar has its own gesture model — long-press + pan reorders the avatars. This is **avatar-specific** and predates the conventions above; do not apply it as precedent to other surfaces. See `forked-resource-calendar.mdc` § "Gesture model on the avatars" for details.
+
+The convention table above applies to **content objects** (cards, markers, list rows), not to chrome controls like the avatar strip.
+
+## Exception: the map's appointment MARKERS use long-press for drag (post-2026-05-17)
+
+The franchise route map's pin-drag (LDM-WAVE-2 CHUNK-3, `DRAG-2-PIN`) ships with **long-press** as the drag activator — not double-tap-and-hold per the convention table above. The map deviates because `react-native-maps`' native `<Marker draggable>` API exposes only long-press as the activator and isn't customizable. See [`docs/PLAN-DEVIATIONS.md#2026-05-17-native-marker-drag-vs-double-tap-hold`](../../docs/PLAN-DEVIATIONS.md) for the full rationale ("don't fight the default" was the explicit decision).
+
+That means on the map surface:
+
+| Gesture | Intent |
+|---|---|
+| **Single tap** | Open the Callout (which renders a tappable "Actions" row inside it) |
+| **Long-press** | Move (drag the pin) — LDM-WAVE-2 CHUNK-3 |
+| **Tap the Callout** | Open the context menu — LDM-WAVE-2 CHUNK-4 (`DRAG-3-CONTEXT-MENU`), which routes through `<MarkerContextMenuSheet>` |
+
+The calendar still honors the canonical convention ("double-tap = move, long-press = options" for content objects). The two surfaces are inconsistent, and this is documented as an intentional deviation — do not "fix" the map to use double-tap without reading the PLAN-DEVIATION entry first.
+
+If a NEW surface (e.g. a side-drawer list, a customer-facing schedule view) needs a drag affordance, default back to the canonical convention. The map exception applies because of a specific native-library constraint, not as a new precedent.
+
+## If you find yourself writing the wrong thing
+
+**Stop and re-read.** The most common mistakes:
+
+- ❌ "Long-press a calendar card → drag" — wrong. The calendar uses **double-tap**.
+- ❌ "The map marker uses double-tap-and-hold for drag" — wrong. As of 2026-05-17 the map shipped with native `<Marker draggable>` and long-press as the drag activator. See the "Map MARKERS use long-press" exception section above and `docs/PLAN-DEVIATIONS.md#2026-05-17-native-marker-drag-vs-double-tap-hold`.
+- ❌ Adding a new drag treatment that uses long-press, then needing a "preference picker" to pick between drag and the existing long-press → context menu — the gesture choice is the problem, not the lack of a picker. Pick a free gesture (double-tap if "move" is the intent; some other distinct gesture if not). Map's CHUNK-4 followed this principle by moving its trigger off long-press onto a Callout-Actions row, NOT by adding a picker.
+
+## Why this rule exists (and why it's `alwaysApply: true`)
+
+Documented in `/Users/jacegalloway/Documents/codebases/REMIBackend/docs/implementation-plans/landscape-dispatch-map-wave-2.agent-state.yaml` under `corrections → 2026-05-16-calendar-uses-double-tap-not-long-press`. Short version:
+
+- Agent assumed long-press → drag on calendar cards. Repeatedly, across multiple turns.
+- User corrected: "right now in order to move a card on the calendar it requires a double tap, not a long press like you always seem to get wrong by accident."
+- Correction propagated: LDM-WAVE-2 CHUNK-3 was respecced (double-tap), CHUNK-4 was respecced (long-press for context menu instead of fighting CHUNK-3 for long-press), and CHUNK-6 (DRAG-PREFS) was simplified (no more preference picker — gestures coexist).
+
+The rule is `alwaysApply: true` because:
+1. The mistake has happened more than twice, in different agent sessions, in different parts of the conversation.
+2. The fix is a one-line correction (use the right gesture); the cost of re-litigating it is large.
+3. There is no good "trigger" glob — any agent working on calendar, map, or any future gesture-driven surface needs to know this.
+
+## When extending this rule
+
+If a new surface or interaction lands and the convention needs to grow:
+
+1. **Add a row to the table above.** Keep the gesture column atomic (one gesture per row); if a surface deviates, add an exception section like the avatar exception above.
+2. **Cross-reference the implementation site** in the "Examples in the app today" cell, with file path and (if relevant) line numbers — this is how future agents verify the rule against reality.
+3. **Do not break the existing rows.** If you find yourself wanting to say "the map uses long-press for move now," stop — that's a redesign, not a rule update. Raise it with the user first.
+
+## Related rules
+
+- `forked-resource-calendar.mdc` — calendar-specific gesture model, including the avatar exception. References this rule for the app-wide convention.
+- `bug-tag-index.mdc` — `gesture-mutex` and `gesture-architecture` tags cover historical bugs where these conventions were violated.

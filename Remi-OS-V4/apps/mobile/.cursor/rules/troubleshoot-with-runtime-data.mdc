@@ -1,0 +1,134 @@
+---
+description: Troubleshooting discipline — exhaust runtime observability (Sentry events, breadcrumbs, replays, console logs) BEFORE proposing fixes. Reading code is not a substitute for runtime evidence.
+globs:
+alwaysApply: false
+---
+
+# Troubleshoot With Runtime Data, Not Guesses
+
+This rule exists because of a specific, repeated failure mode that has cost real time:
+
+> Agent reads code → forms a hypothesis about why a runtime bug is happening → ships a fix based on that hypothesis → fix doesn't work because the hypothesis was wrong → repeat.
+
+When the bug is reactive behavior on a real device (gesture didn't fire, sheet didn't open, mutation silently failed, marker stuck at wrong position, etc.), reading the code tells you what the code is **supposed to do**, not what it is **actually doing**. Those are usually different. The difference is what you're trying to fix.
+
+**Before proposing any fix for a runtime bug, you MUST exhaust the runtime-evidence sources below.** Asking the user "what does it look like?" is a fallback when instrumentation doesn't exist yet — not a substitute for instrumenting.
+
+## The runtime-evidence ladder
+
+Walk these in order. Don't skip rungs.
+
+### 1. Check what Sentry already captured
+
+Sentry is configured in `app/_layout.tsx` with these surfaces enabled:
+
+- **Native crashes** → reported automatically (`EXC_BAD_ACCESS`, JS engine crashes, etc.).
+- **Uncaught JS exceptions** → reported automatically.
+- **Session replay** at `replaysSessionSampleRate: 1.0` (100% of sessions) and `replaysOnErrorSampleRate: 1.0`. **Every session you smoke-test has a video.**
+- **Mobile replay integration** via `Sentry.mobileReplayIntegration()`.
+- **Breadcrumbs** auto-captured from `console.log`, navigation, network, AsyncStorage, etc.
+- **Profiling traces** at `tracesSampleRate: 0.2` in prod / `1.0` in dev.
+
+To pull events programmatically from the cloud agent:
+
+```bash
+# Recent events (last 24h)
+curl -sS -H "Authorization: Bearer $SENTRY_TOKEN" \
+  "https://sentry.io/api/0/projects/remi-v0/remi-technician/events/?statsPeriod=24h"
+
+# Recent replays
+curl -sS -H "Authorization: Bearer $SENTRY_TOKEN" \
+  "https://sentry.io/api/0/organizations/remi-v0/replays/?statsPeriod=24h&project=-1&per_page=15"
+
+# Specific issue / replay detail (need full id, not the 8-char prefix)
+curl -sS -H "Authorization: Bearer $SENTRY_TOKEN" \
+  "https://sentry.io/api/0/projects/remi-v0/remi-technician/replays/$FULL_ID/"
+```
+
+The `SENTRY_TOKEN` env var is injected into the cloud-agent VM. The org slug is `remi-v0`, the project slug is `remi-technician`.
+
+The replay viewer (the actual video) is only in the Sentry web UI — link format:
+`https://sentry.io/organizations/remi-v0/replays/$FULL_REPLAY_ID/`
+
+Send that link to the user if you need them to watch the recording themselves. **You cannot watch the video from the agent**; you CAN see the structured events and breadcrumbs attached to it via the API.
+
+### 2. Read the breadcrumbs and tags on captured events
+
+Captured events (whether crashes, exceptions, or explicit `Sentry.captureMessage` calls) come with a breadcrumb trail. The `sentry-diagnostics.ts` helpers (see `src/utils/sentry-diagnostics.ts`) layer structured tags + extras onto events so they're searchable and filterable in the Sentry UI. The calendar's drag pipeline uses this pattern — search the project for `captureMoveOutcome` and `dragBreadcrumb` for examples.
+
+Tags you can filter by today (calendar surface): `outcome:dismissed`, `outcome:staged`, `linter_decision:intercept`, `intent_type:reschedule`, `view_mode:week-portrait`, etc.
+
+If a captured event matches the bug's time window AND has tags / breadcrumbs that map to the failing flow → diagnosis is from data. Use it.
+
+### 3. If no instrumentation exists, ADD it before proposing a fix
+
+When you discover that a flow has zero Sentry visibility (no `captureMessage`, no `addBreadcrumb`, no error logging) and the bug is in that flow, **the next action is to add instrumentation, not to guess at the root cause**.
+
+Instrumentation patterns to follow:
+
+- **`Sentry.addBreadcrumb({ category, message, level, data })`** for fine-grained event tracking. Cheap. Attaches to the next captured event in the same session.
+- **`Sentry.captureMessage(message, level)`** for searchable state-transition events. Heavier — each call shows up as its own Sentry event. Use sparingly for the milestones you'd want to grep for later.
+- **`Sentry.withScope(scope => { scope.setTag(...); scope.setExtras(...); Sentry.captureMessage(...); })`** when you need filterable tags + structured extras on the event. The existing `sentry-diagnostics.ts` helpers wrap this pattern.
+
+Wire breadcrumbs at every observable transition in the flow you're debugging. For a gesture-driven feature, that means:
+
+- Gesture activation (long-press detected, tap detected, drag started, etc.).
+- Gesture termination (drag ended at coord X/Y, tap released, etc.).
+- Dispatcher classification (which branch the code took, with the inputs that drove the decision).
+- Mutation outcome (success / 4xx / 5xx, with payload echo on error).
+- State transitions in any React state that gates UI (sheet open/close, selection changes, etc.).
+
+Tag the breadcrumbs with the relevant entity identifiers (stop ID, tech ID, appointment ID, etc.) so the trail can be cross-referenced with the data.
+
+### 4. Ship instrumented OTA, reproduce, read events
+
+Once instrumentation is in place:
+
+1. Ship via `eas update --branch preview --platform ios` (or whatever the bug surface needs — see `eas-build-versioning.mdc`).
+2. Tell the user to reproduce. Be specific about which exact actions to take.
+3. Wait for them to confirm reproduction.
+4. Pull the new events from Sentry. Confirm your instrumentation actually fired.
+5. Read the actual event sequence. Compare to what the code said it would do.
+6. Diagnose from the diff. Then fix.
+
+### 5. Direct user observation is the LAST resort
+
+If after steps 1–4 you still don't have enough signal — and only then — ask the user to describe what they see, or send them the Sentry replay URL and ask them to watch and tell you specifically what happens at which timestamp.
+
+Asking "what does it look like?" without first exhausting instrumented observability is a tell that you've skipped the ladder.
+
+## Anti-patterns this rule exists to stop
+
+- ❌ Reading the source for the broken flow + forming a "I bet it's X" hypothesis + shipping a fix. **No.** Without runtime data confirming X is the actual cause, you're guessing. Fixes shipped on guesses have a high rate of introducing new bugs without solving the original one — and the user pays the iteration cost in OTA reloads.
+- ❌ Treating "no Sentry events for this flow" as "no information" and pivoting to code-reading. The right move is "no events = no instrumentation = add some."
+- ❌ Asking the user "did the menu open?" when you could have added a `Sentry.addBreadcrumb({ message: "menu_opened" })` that would have answered the question without bothering them.
+- ❌ Iterating `fix → OTA → "did it work?" → fix → OTA → ...` without changing what's instrumented between rounds. If round N didn't work, round N+1 must include more instrumentation than round N, not just a different fix.
+- ❌ Pulling 1 Sentry event from the past, finding nothing relevant, and declaring Sentry useless. The right move is to keep walking the ladder — check replays, check tagged events, check breadcrumbs on existing events from related code paths.
+
+## When this rule does NOT apply
+
+Skip the ladder for these cases — direct code inspection is fine:
+
+- **Compile / type / lint errors** — the toolchain output tells you the answer directly. No runtime needed.
+- **Logic bugs in pure functions** — write a test that reproduces the case, run the test, fix to make it green. The test IS your runtime data.
+- **Backend bugs** — REMIBackend has its own observability (Render logs, Postgres logs, the event_logs table). The ladder shape is the same but the rungs are different. A mirrored REMIBackend rule may eventually exist.
+- **The user explicitly says "I know what's wrong, just fix it"** — they have runtime knowledge you don't. Trust them; ask only to clarify the fix, not the diagnosis.
+- **Pure refactor / cosmetic changes** — no bug to troubleshoot.
+
+## How to use this rule mid-debug
+
+When you're in the middle of a multi-round bug-fix loop and feel the temptation to "try one more thing based on what the code says":
+
+1. **Stop.**
+2. **Re-read the ladder above.**
+3. **Identify which rung you're skipping.**
+4. **Do that rung first** before proposing any more fixes.
+
+If you've shipped 2 OTAs without a successful fix, you've crossed the "I'm guessing" threshold whether you realize it or not. Stop, instrument, reproduce, read events, then fix.
+
+## Cross-references
+
+- `src/utils/sentry-diagnostics.ts` — existing helpers + breadcrumb patterns (calendar drag pipeline). Mirror the structure for any new instrumented flow.
+- `src/utils/sentry-map-diagnostics.ts` — map drag + Callout + menu instrumentation (added 2026-05-17 during the CHUNK-4 debug session that motivated this rule).
+- `.cursor/rules/eas-build-versioning.mdc` — how to ship the instrumented OTA.
+- System-prompt guidance on "you NEED actual runtime data" — this rule is the repo-specific implementation of that directive.

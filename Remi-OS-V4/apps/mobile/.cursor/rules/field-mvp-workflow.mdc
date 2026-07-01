@@ -1,0 +1,549 @@
+---
+description: Field MVP plan workflow — chunk discipline, hand-off prep, no orphan shipping, full-lifecycle automation
+globs: docs/implementation-plans/remi-1.0-field-mvp-plan.md
+alwaysApply: false
+---
+
+# Field MVP Workflow — Chunk Discipline
+
+This rule governs every chunk of the REMI 1.0 Field MVP plan
+(`docs/implementation-plans/remi-1.0-field-mvp-plan.md`). It exists
+because between 2026-05-22 and 2026-05-23 the assistant made a
+specific class of mistakes more than once, and the user explicitly
+demanded these be prevented going forward.
+
+## The mistakes this rule prevents
+
+1. **Claiming a chunk is SHIPPED when only its docs are on `main`.** On
+   2026-05-22 the assistant merged a docs-only PR (#154) that flipped
+   Chunk 1.2's plan-doc status to "SHIPPED" while the actual Chunk 1.2
+   code (`7cc0487 feat(stripe): wire StripeProvider + PaymentSheet`)
+   sat on a local unmerged branch. Then the assistant told the user
+   "Phase 1 Chunk 1.2 is fully shipped and published" — which was
+   false. The code only existed on the user's laptop.
+
+2. **Decoupling plan-doc changes from code changes.** The docs update
+   was branched off `main` directly while code work continued on a
+   stacked feature branch. The work branch's tree never got the plan
+   update, so when the cloud agent read the plan from the workspace it
+   saw the pre-SHIPPED version (1779 lines, no Chunk 1.3 section)
+   instead of the current SHIPPED version on `main` (1954 lines).
+   Result: the agent operated against a stale tree.
+
+3. **Stacking unmerged work without a bundling discipline.** Phase 1
+   accumulated four stacked FE branches (1.1, 1.1.1, 1.2, 1.3), all
+   local-only, none PR'd, while the plan doc on `main` already
+   described them as in various states. Each stacked branch was real
+   working code that had been smoke-tested, but invisible to anyone
+   reading `main`.
+
+4. **Making the user do git operations.** The user has stated
+   explicitly and repeatedly: *"do everything for me, I need to just
+   be doing prompts."* Every git command (branch, commit, push, PR
+   open, PR merge, submodule pointer bump) is the assistant's job.
+   The user pastes prompts; the assistant runs the rest end-to-end.
+
+## The non-negotiable rules
+
+### 1. PR mechanics for every chunk
+
+For each Field MVP chunk, **the assistant runs the full git lifecycle
+without prompting** the user for any step. The lifecycle is:
+
+   a. Cut a feature branch off current `origin/main` (or the latest
+      stacked tip if the chunk explicitly stacks — see §7). Use
+      `./scripts/check-branch-chunk.sh --create <branch-name>`. See
+      `branch-hygiene.mdc`.
+   b. Make the code changes for that chunk.
+   c. Update `docs/implementation-plans/remi-1.0-field-mvp-plan.md`
+      **in the SAME branch** — flip the chunk status from `DRAFT` /
+      `IN-PROGRESS` to `SHIPPED`, add the post-execution callout,
+      draft the next chunk if hand-off applies. **NEVER ship the
+      plan-doc update in a separate PR from the code.** If the chunk
+      is genuinely a doc-only chunk (e.g., drafting future-phase
+      prompts with no code), that's fine — but then the plan-doc PR
+      is not allowed to claim any code chunk is `SHIPPED`.
+   d. Update `docs/DEVELOPMENT-LOG.md` in the same branch. See
+      `documentation.mdc`.
+   e. Stage everything, commit with a focused message, push with
+      `-u origin HEAD`.
+   f. Open the PR via `gh pr create` (`gh` is authorized for submodule
+      PRs per the umbrella's `remi-monorepo-submodules.mdc`).
+   g. Wait for CI green, merge via
+      `gh pr merge <num> --squash --delete-branch`.
+   h. If REMITechnician changes were part of a multi-repo chunk (BE +
+      FE), repeat a–g in REMIBackend (and any other touched
+      submodule) — and only after every submodule PR is merged, bump
+      the REMI-Monorepo umbrella pointer per `AGENTS.md` (cut a
+      feature branch on the monorepo, commit the submodule pointer
+      update, push, open PR via `ManagePullRequest` or `gh`, CI
+      green, squash-merge).
+
+The user should not see any of these commands except in the final
+"merged, you're good" status report.
+
+### 2. State accuracy — plan label must match git state
+
+The plan-doc's chunk status labels MUST match the actual git state of
+`origin/main`:
+
+| Plan label | Means | Verify by |
+|---|---|---|
+| `SHIPPED` | Code is on `origin/main` AND smoke-tested AND post-execution callout written | `git log origin/main -- <code file>` shows the commit |
+| `IN-PROGRESS` | Code is on a pushed branch but not yet merged | `git ls-remote origin <branch>` returns the SHA, `gh pr view <num>` shows the PR |
+| `DRAFT` | Hand-off prompt written, no code yet | only plan-doc text exists |
+| `ON-BRANCH` | Code is committed locally but **NOT** pushed to a PR | local-only branch, no remote PR — this label is a red flag, see §7 |
+
+**Before flipping a chunk to `SHIPPED`, the assistant MUST verify the
+code is actually on `origin/main` of every affected repo** by running
+the verification commands above. Saying "X is shipped" when X is only
+in a docs PR or only on a local branch is forbidden.
+
+### 3. Hand-off prep — run BEFORE pasting any chunk prompt
+
+Before the user pastes a chunk prompt to a cloud agent (or any other
+external agent), the assistant MUST run this 3-step check and report
+the result in one short status block:
+
+   a. **Verify `main` has the plan-doc state describing the chunk.**
+      `git log origin/main -- docs/implementation-plans/remi-1.0-field-mvp-plan.md`
+      should show the merge that added/updated the chunk section.
+   b. **Verify the working branch is rebased onto `origin/main`** so
+      the plan + code live in the same tree. If the user's current
+      branch is N commits behind `origin/main`, rebase or merge it up
+      before any hand-off.
+   c. **Verify no previous chunk's code is stuck on a local-only
+      branch.** Run `git branch --no-merged origin/main` in every
+      relevant repo. If anything is stacked but unmerged, run the §1
+      lifecycle to land it FIRST — then return to the hand-off.
+
+The hand-off prompt itself should still carry the full chunk spec
+(self-contained, no required external context) — but the tree the
+agent reads from must AGREE with the prompt, not contradict it.
+
+### 4. Metro-first iteration for Phase 1
+
+Phase 1 chunks default to **Metro dev-client**, NOT `eas update` OTA.
+Per `eas-build-versioning.mdc` Step 0:
+
+   - JS-only change against a binary that already has the native
+     module → Metro dev-client absorbs it. No build credit spent. No
+     OTA bundle that can silently fail to land on the device.
+   - Native package added / removed / `app.json` plugins changed →
+     `eas build --profile development --platform ios`.
+   - Production-readiness work → `eas build --profile preview`.
+
+The 2026-05-22 OTA pivot during Chunk 1.2 (bundle silently failed to
+land on the device) was the trigger for this default. Reverting to
+OTA-first without a written justification in the chunk's
+post-execution callout is not allowed in Phase 1.
+
+### 5. Table-of-Contents update on every chunk addition
+
+Every time a new `## Chunk X.Y — ...` heading lands in
+`docs/implementation-plans/remi-1.0-field-mvp-plan.md`, the Table of
+Contents at the top of the same doc MUST get a matching `- [Chunk X.Y — ...](#chunk-xy--...)`
+entry in the same commit. If the chunk supersedes the trailing
+`_(pending)_` placeholder line (e.g., the old "Chunks 1.4 – 5.x
+_(pending)_" entry once Chunk 1.4 is drafted), update the range so
+the placeholder still bounds the unfinished work correctly.
+
+This is non-optional because the docs site renders the TOC as the
+primary navigation for a 2,000+ line plan doc. A chunk that exists in
+the body but not in the TOC is **invisible** to the user trying to
+copy-paste the prompt — they have to either Cmd-F through the whole
+file or know the chunk number a priori. Either way, the published doc
+is broken.
+
+Procedure when adding a chunk section to the plan doc:
+
+  a. Insert the `## Chunk X.Y — <title>` heading + body in the
+     appropriate spot (preserving section order: 0.x, 1.x, 2.x, ...).
+  b. **In the same edit, add the TOC entry under "Chunk detail"** in
+     the order it appears in the body. Match the heading text exactly
+     (the auto-generated GitHub-style anchor must resolve — em-dash
+     → `--`, backticks dropped, lowercase, spaces → `-`).
+  c. Update the trailing `_(pending)_` placeholder so the unfinished
+     range advances. For example: after drafting Chunk 1.4 the old
+     `Chunks 1.4 – 5.x _(pending)_` line becomes `Chunks 2.x – 5.x
+     _(pending — drafted as each Phase begins)_`.
+  d. Spot-check the new anchor by reading the post-sync file at
+     `Docs/docs/repos/technician/implementation-plans/<file>.md` and
+     confirming the heading slug GitHub will generate matches the
+     `#chunk-x-y-...` href in the TOC. (No live URL to click — see §6.)
+
+The user has called out missed TOC updates THREE times in this plan's
+history (2026-05-22 — Chunk 1.2; 2026-05-23 — Chunk 1.3; 2026-05-23 —
+Chunk 1.4). The fix has been the same each time: re-edit the TOC,
+re-PR, re-sync. This rule exists so the next chunk doesn't make it
+four. If you find yourself committing a `## Chunk` section addition
+to this plan, **STOP and re-read this section** before pushing.
+
+### 6. Publish-and-verify: confirm the sync lands on `Docs/main`
+
+Every plan-doc change must reach the published docs source on
+`Docs/main` (= `JaceG/REMI-Documentation` on GitHub) within the same
+working session — otherwise the user can't pull up the hand-off prompt
+without first cloning the Tech repo locally. The pipeline is automatic
+but only fires under specific conditions, and the assistant MUST
+verify the sync commit actually landed each time.
+
+**The pipeline (what really happens):**
+
+1. **`REMITechnician/.github/workflows/notify-docs.yml`** fires on every
+   push to `main` that touches `README.md`, `docs/DEVELOPMENT-LOG.md`,
+   or anything under `docs/implementation-plans/**`. It posts a
+   `repository_dispatch sync-docs` to `JaceG/REMI-Documentation`.
+2. **`Docs/.github/workflows/sync-repo-docs.yml`** receives that dispatch,
+   sparse-checks-out every submodule's `docs/` + `README.md` +
+   `DEMO-CODE.md`, copies them into `Docs/docs/repos/<repo>/...`, and
+   commits `Sync repo docs (automated)` on `Docs`'s `main`.
+3. **GitHub Pages on `JaceG/REMI-Documentation`** auto-publishes
+   from `main` / `/docs` (built-in Pages, no extra workflow). Once
+   step 2's commit lands, the new content is served automatically.
+   There is no Cloudflare in this pipeline and there is no custom
+   domain wired up — `https://jaceg.github.io/REMI-Documentation/` is
+   the only live URL, and the user has expressed that even that URL
+   is not part of the verification path because the agent should
+   trust the sync-commit landing as proof.
+
+**Anti-hallucination guard:** prior versions of this rule and several
+chunk callouts (Chunks 1.4, 1.5) claimed the pipeline ended at
+`https://maxitechremi.app` on Cloudflare Pages. **Neither exists.**
+`dig +short maxitechremi.app` returns nothing. There is no
+`wrangler.toml`, no `_headers`, no Cloudflare deploy workflow, and no
+`CNAME` file anywhere in `Docs/`. If a future agent finds itself
+about to write "verified live at maxitechremi.app" — **STOP**. The
+correct phrasing names the `Docs/main` sync commit.
+
+**The assistant's obligation per plan-doc change:**
+
+   a. **The plan-doc edit must land on `REMITechnician/main`** — not on a
+      side branch, not in a draft PR. The `notify-docs.yml` trigger only
+      fires on push to `main` per the workflow's `on.push` filter. A
+      stacked or draft branch never fires the webhook.
+   b. **After the PR merges**, verify the Docs sync ran:
+        cd /Users/jacegalloway/Documents/codebases/REMI-Monorepo/Docs && \
+          git fetch origin && git log --oneline origin/main -5 | head -3
+      Look for a recent `Sync repo docs (automated)` commit timestamp
+      newer than the plan-doc PR's merge timestamp. If not seen within
+      ~2 minutes, manually trigger via the GitHub UI:
+      `Docs` repo → Actions → "Sync Repo Docs" → "Run workflow".
+   c. **Verify the synced file's content matches the source.** Pull
+      `Docs/main` and `diff`:
+        diff <(cat REMITechnician/docs/implementation-plans/<file>.md) \
+             <(cat Docs/docs/repos/technician/implementation-plans/<file>.md)
+      Should be empty (or differ only by trailing newline). If the synced
+      copy lags more than two minutes behind, the sync may have failed —
+      check the Actions log on the `Docs` repo.
+   d. **For brand-new doc files** (e.g., a fresh plan), confirm
+      `Docs/docs/assets/docs-config.js` has an entry registering the file
+      with the docs site nav. The sync workflow copies content but does
+      NOT add nav entries; that's a one-time hand edit on `Docs`. The
+      Field MVP plan got its entry on 2026-05-22 (Docs commit `35e4eb5`).
+      If a new plan file appears in `Docs/docs/repos/.../*.md` with no
+      `docs-config.js` entry, it's still reachable via direct file path
+      but is INVISIBLE in the rendered nav — add the entry in the same
+      session.
+   e. **Confirm the sync BEFORE telling the user the prompt is ready
+      to copy.** The acceptance phrasing is: *"Chunk X.Y prompt is
+      synced to `Docs/main` at commit `<sha>` — the file is at
+      `Docs/docs/repos/technician/implementation-plans/<file>.md`
+      and GitHub Pages serves it automatically from there."*
+      Saying "the prompt is drafted" without verifying the
+      `Sync repo docs (automated)` commit actually landed on
+      `Docs/main` is the same class of mistake as the §1 "shipped
+      without code" failure.
+
+The user has stated this requirement explicitly: *"don't forget to do
+everything it takes to get it on the docs website for me to copy and
+paste, if you need to add that to the rule so you don't forget from now
+on please do."* (2026-05-23.) And the corollary, stated 2026-05-23
+after the assistant burned a session hallucinating a Cloudflare site:
+*"They don't exist and don't need to be replaced because it takes care
+of itself to get on the github pages when updated."* Failing to
+verify the sync after a plan-doc edit is a §1-class breach; inventing
+a URL or hosting provider to make the verification statement sound
+better is a separate, worse breach.
+
+### 7. Hand-off prompt structure (placement + fence + copy-paste integrity)
+
+Every `## Chunk X.Y — ...` section in
+`docs/implementation-plans/remi-1.0-field-mvp-plan.md` follows a
+fixed internal order, and the hand-off prompt block has a fixed
+fence shape. Both are non-negotiable — the user copy-pastes these
+prompts directly off the rendered file on `Docs/main` (auto-served
+via GitHub Pages, per §6) into fresh agent chats, and a malformed
+prompt = a broken hand-off.
+
+**Placement: hand-off prompt goes near the TOP of the chunk, not the bottom.**
+
+The canonical chunk-section order, established by every prior chunk
+(0.1 → 1.4), is:
+
+  a. `## Chunk X.Y — <title>` heading
+  b. One-paragraph intro callout (blockquote, `> **Why this chunk exists:** ...` or similar)
+  c. `### Hand-off prompt (paste into ...)` — the full prompt block
+  d. `### Goal`
+  e. `### Why this chunk` / `### Why this chunk before <next>`
+  f. `### What lands in the commits`
+  g. `### Acceptance criteria`
+  h. `### Out-of-scope for this chunk (do NOT do these)`
+  i. Any remaining subsections (PR strategy, file touch list,
+     schema sanity check, etc.)
+
+The user opens the doc, jumps to the chunk via the TOC, and the
+first thing they see beneath the chunk heading is the copy-pasteable
+prompt. Anything else (Goal, Why, Acceptance) is reference material
+for the *executing* agent — it gets surfaced when the agent reads
+the chunk on its end, NOT when the user copies the prompt. Putting
+the prompt at the bottom forces the user to scroll past the entire
+spec to get to the copyable text, which is the opposite of the
+"one-click hand-off" the plan-doc shape is designed for.
+
+If you find yourself appending a `### Hand-off prompt` subsection
+AFTER `### Out-of-scope` or `### PR strategy`, **STOP** — move it
+above `### Goal` before commit. (Chunk 1.5's first draft, 2026-05-23,
+made this exact mistake. The user caught it. This rule exists so the
+NEXT chunk doesn't.)
+
+**Fence: use 4 backticks for the outer fence whenever the prompt body contains any code blocks.**
+
+Hand-off prompts almost always contain inner fenced code blocks —
+`psql` snippets, `git` commands, shell pipelines, JSON, TS skeletons.
+If the outer fence is also 3 backticks, the FIRST inner ` ``` ` closes
+the outer fence prematurely. The docs site then renders the prompt as
+several disjoint code blocks instead of one contiguous block, and the
+COPY button next to the first block only grabs the partial prefix.
+The user gets a truncated prompt with no warning.
+
+The fix is mechanical: **use 4 backticks (` ```` `) for the outer
+fence** any time the prompt body has even ONE inner 3-backtick block.
+Chunk 1.4 followed this pattern (line 1982: `````); Chunk 1.5's first
+draft did not, which is what triggered the user's "I can't copy it
+all" feedback on 2026-05-23.
+
+A safe default is "always use 4 backticks for hand-off prompt outer
+fences." It costs nothing on prompts with no inner code, and it's the
+only shape that survives the inner-code case. If you're already using
+4-backtick outer fences uniformly, you never have to think about
+this again.
+
+Procedure when authoring or editing a hand-off prompt:
+
+  a. Open the prompt with `` ```` `` (four backticks) on its own line.
+  b. Close with `` ```` `` (four backticks) on its own line.
+  c. Inside, any code samples (psql, git, shell, ts) use ordinary
+     3-backtick fences — they nest cleanly inside the 4-backtick
+     outer.
+  d. After the prompt lands on `main` and `Sync repo docs (automated)`
+     fires on `Docs/main` (per §6), open the synced file directly:
+     `Docs/docs/repos/technician/implementation-plans/<file>.md`.
+     Locate the chunk's hand-off prompt and confirm the outer
+     4-backtick fence opens and closes around the *entire* prompt
+     body (from "You are Chunk X.Y of ..." through the closing
+     "Sign-off message back to the user" line) — with no inner
+     3-backtick block sitting between the outer fences as a
+     same-level sibling. If the fences are misaligned, GitHub
+     will render the prompt as several disjoint blocks; re-edit,
+     bump the fence to 4 backticks, re-PR, re-verify.
+
+The plan-doc is the primary artifact this rule governs, but the same
+shape rules apply to any future doc that publishes copy-pasteable
+agent prompts (e.g., `pdf-implementation-plans/agent-prompts/*.md`).
+
+### 8. Stacking discipline
+
+If a chunk genuinely depends on a previous chunk's unmerged code
+(e.g., Chunk 1.3 stacks on 1.2's PaymentSheet wiring), exactly **one**
+of two patterns is allowed:
+
+   a. **Land each chunk's PR as it completes** (preferred). The next
+      chunk's branch then cuts off the new `main`, not off the
+      stacked tip. This keeps `main` and the plan-doc honest at every
+      step.
+   b. **One bundle PR for a whole sub-phase**, with an explicit
+      checklist in the PR body covering every chunk inside it AND the
+      plan-doc updates for all of them. The bundle PR is opened the
+      moment the FIRST chunk in the bundle is code-complete, not
+      after all of them are done — that way it can't be forgotten.
+      The plan-doc must label every chunk in the bundle as
+      `IN-PROGRESS` (linked to the open PR), never `SHIPPED`, until
+      the bundle merges.
+
+The **forbidden third pattern** is "let stacked branches accumulate
+locally while telling the user they're shipped." That's what
+happened 2026-05-22 → 2026-05-23 and is the exact failure this rule
+exists to prevent. If the assistant ever finds itself about to write
+"Chunk X is shipped" while `git ls-remote origin` doesn't show the
+corresponding PR, STOP — re-read §2.
+
+### 9. One agent per Phase — prompt-writing implications
+
+Each Phase has ONE dedicated executing-agent chat that runs ALL
+chunks in that Phase sequentially. Phase 0 chunks ran in one agent.
+Phase 1 chunks ran in another. Phase 2's Chunk 2.1 + 2.2 + 2.3 all
+run in the SAME Phase 2 agent. **The user starts a fresh agent
+ONLY when crossing a Phase boundary** (Phase 1 → Phase 2 = new
+agent; Chunk 2.1 → Chunk 2.2 = SAME agent). This is stated
+explicitly in `## Next steps` item 11 of the plan doc: *"one agent
+per Phase, chunks run sequentially inside that agent's chat."*
+
+**Why this matters for the prompt-writer (us):**
+
+The FIRST chunk of a Phase (e.g., Chunk 2.1) IS a fresh chat. Its
+prompt should open with "You are starting a fresh Cursor chat..." and
+pull in all foundational context — repo paths, prior shipped work,
+schema baseline, workflow rules, etc.
+
+Every SUBSEQUENT chunk of the same Phase (e.g., Chunk 2.2) opens
+INSIDE an already-loaded chat. The agent already has, in active
+context:
+
+  - All workflow rules (loaded once per chat by globs/`alwaysApply`).
+  - All files it read or built in prior chunks of the same Phase.
+  - All schema migrations it applied (and the `psql` outputs it
+    pasted into earlier turns).
+  - All test baselines from prior chunks.
+  - The Phase's running mental model (what `pending` vs `failed`
+    means, what the cadence enum does, what the existing service
+    layout looks like, etc.).
+
+Within-Phase chunk prompts therefore should:
+
+  a. **Drop the "fresh Cursor chat" framing.** Open with: "You are
+     Chunk X.Y of the REMI 1.0 Field MVP Plan — `<title>`. This is
+     the next chunk in the Phase N agent's sequence (Chunk X.(Y-1)
+     shipped via `<repo>` PR #ZZZ, squash `<sha>`)." Do NOT pretend
+     the chat is fresh — the agent scrolls up, sees its own work
+     product from the prior chunk, and the false framing makes
+     everything below it suspect.
+  b. **Skip "Read first" entries for files the agent already read or
+     built in a prior chunk of the same Phase.** Re-listing them is
+     token waste. ONLY list:
+       - The plan-doc section for the NEW chunk (always — the binding
+         spec must be re-read each chunk).
+       - The post-execution callout / dev-log open-questions block
+         from the prior chunk (the design decisions this chunk locks
+         down live there; the agent benefits from re-anchoring).
+       - NEW files this chunk touches for the first time (e.g.,
+         Chunk 2.2's first touch of `src/cron/index.ts`).
+  c. **Skip pre-flight items the agent already verified in a prior
+     chunk.** The agent doesn't need to re-list the CARFAX enum
+     names or re-check that `franchises.carfax_location_id` exists
+     if it migrated it on chunk 1. ONLY list pre-flight that
+     materially changed since the prior chunk:
+       - Working-tree clean on the CURRENT `origin/main` (which
+         advanced after the prior chunk merged).
+       - NEW schema, NEW env vars, NEW corpus this chunk needs.
+       - The NEW baseline test count (which moved after the prior
+         chunk added tests).
+  d. **Reference prior shipped work in ONE sentence by PR + SHA,
+     not by re-explaining the architecture.** E.g.: "Chunk 2.1
+     shipped `carfaxSubmissionService.submitForAppointment` via
+     REMIBackend PR #110 (`1ddb117`). This chunk extends it with
+     a retry counter and adds a cron sweep that delegates per-row
+     through the same entry point." The agent re-reads the prior
+     chunk's section in the plan doc for the rest.
+  e. **Workflow / branch / PR rule reminders collapse to one
+     sentence:** "All workflow rules from Chunk N.1 still apply
+     (`field-mvp-workflow.mdc`, `branch-hygiene.mdc`,
+     `architecture.mdc`); cut the new branch off the latest
+     `origin/main` of each touched repo." No need to re-enumerate
+     the same eight rules from the Phase opener.
+
+**What this looks like in practice:**
+
+| Phase opener (Chunk N.1) | Mid-Phase chunk (Chunk N.{2+}) |
+|---|---|
+| "You are starting a fresh Cursor chat. There is no prior context..." | "You are Chunk N.M. Chunk N.(M-1) shipped via PR #XXX (`<sha>`); this chunk extends it." |
+| 7–8 "Read first" items including foundational repos | 2–3 "Read first" items: new chunk's plan section, prior chunk's open-questions callout, NEW files only |
+| 5–7 pre-flight items including schema baseline + creds decision | 2–3 pre-flight items: clean tree on advanced `main`, NEW corpus needed, NEW baseline test count |
+| Workflow + branch + PR rules listed in full | One-line reminder pointing back to the Phase opener's rule reads |
+
+A mid-Phase chunk prompt should be **30–50% smaller** than its Phase
+opener. If you find yourself writing "You are starting a fresh
+Cursor chat" or "1. The full Chunk X.Y section... 2. The Phase N
+sub-bullet block... 3. `<file the agent built last chunk>` ..." for
+any chunk 2-through-N within a Phase, **STOP and trim** before the
+PR opens.
+
+**Edge case — Phase boundary crossings:** if the user explicitly
+states they're starting a fresh agent at a chunk that isn't `N.1`
+(e.g., "Phase 2 stalled, I'm restarting it at 2.3 in a new chat"),
+treat that chunk as a Phase opener for prompt-writing purposes —
+restore the full-context framing. The default assumption is
+within-Phase continuity; the carve-out is only when the user names
+the discontinuity.
+
+## How the assistant uses this rule (per chunk)
+
+1. **First action of the chunk:** run §3 (hand-off prep verification)
+   against current `origin/main` of every relevant repo. Report what's
+   actually on `main` vs what the plan claims, in one short status
+   block, BEFORE doing any new work.
+2. **During the chunk:** keep code AND plan-doc changes in the SAME
+   branch (§1c). Don't open separate doc-only PRs unless the chunk
+   itself is a doc-only chunk.
+3. **End of the chunk:** run the full §1 lifecycle without prompting
+   the user. Report the merged state in one final status block (table
+   of `repo / PR # / status` is fine).
+4. **Before any hand-off prompt is pasted:** re-run §3 to confirm the
+   tree the next agent will read from matches the plan's claims;
+   run §7 (hand-off prompt structure) to confirm the prompt block
+   sits at the TOP of the chunk (above `### Goal`) and uses a
+   4-backtick outer fence; run §5 (TOC) to confirm the chunk has a
+   matching TOC entry; run §6 (publish-and-verify) to confirm the
+   `Sync repo docs (automated)` commit landed on `Docs/main` and
+   the synced file's outer fence still spans the full prompt body;
+   run §9 (one-agent-per-Phase) to confirm the prompt's framing
+   matches whether this is a Phase opener (Chunk N.1) or a
+   mid-Phase chunk (Chunk N.{2+}) — mid-Phase prompts should drop
+   the "fresh chat" framing and skip redundant `Read first` /
+   pre-flight items the executing agent already has from the prior
+   chunk. Saying "the prompt is drafted" without running all five
+   checks is the same shape of mistake as the §1 "shipped without
+   code" failure.
+
+## Cross-references
+
+- `branch-hygiene.mdc` — the never-commit-on-main rule and the
+  `check-branch-chunk.sh` helper.
+- `eas-build-versioning.mdc` Step 0 — the Metro / OTA / build decision
+  tree referenced in §4.
+- `documentation.mdc` — DEVELOPMENT-LOG / README / DEMO-CODE update
+  obligations that §1c–d cover.
+- `implementation-plans.mdc` — repo-wide build norms for plans under
+  `docs/implementation-plans/`.
+- `/Users/jacegalloway/Documents/codebases/REMI-Monorepo/AGENTS.md` —
+  the submodule push-and-pointer-bump dance §1h covers.
+- `docs/implementation-plans/remi-1.0-field-mvp-plan.md` — the plan
+  this rule governs.
+
+## History
+
+This rule was written 2026-05-23 in direct response to:
+
+> "I need this fucking prevented. You've made so many mistakes in our
+> conversation. I need you to make a rule for this mvp plan that ties
+> in everything I've told you to do for this convo." — user
+
+Specific incidents captured above. If a future agent (or future me)
+is tempted to ship a docs-only "X is SHIPPED" PR while X's code sits
+on a local branch, STOP and re-read this rule.
+
+§9 (one-agent-per-Phase prompt-writing) was added 2026-05-23 in
+response to:
+
+> "Remember that each phase has it's own dedicated agent for all of
+> it's chunks, might want to put that reminder in the rules for when
+> writing the new chunks, it'll probably save tokens when writing
+> the prompts" — user
+
+The triggering observation: Chunk 2.2's hand-off prompt re-listed
+every CARFAX service file the Phase 2 agent had already built or
+read during Chunk 2.1, re-stated the Phase 2 sub-bullet block, and
+opened with "You are starting a fresh Cursor chat" — all bloat that
+the in-context agent ignores at best and trips on at worst. The
+rule codifies the pattern so the next mid-Phase chunk (2.3, 3.2,
+etc.) opens lean.

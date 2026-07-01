@@ -1,0 +1,105 @@
+---
+description: When and how to consult REMI project documentation and spec files
+globs:
+  - "src/**/*.ts"
+  - "src/**/*.tsx"
+  - "app/**/*.tsx"
+  - "docs/**/*.md"
+alwaysApply: false
+---
+
+# REMI Project Documentation
+
+## Development Log — Scan First, Deep-Read When Relevant
+
+`docs/DEVELOPMENT-LOG.md` is the running build narrative. It is large (>1 MB) — do NOT read it linearly. Instead:
+
+1. **Scan section headers first** with `grep -nE "^## " docs/DEVELOPMENT-LOG.md | tail -40` to see recent entries.
+2. **Deep-read only the entries relevant** to your task. The header tells you what each section covers; jump to the ones that match the feature/file/symptom you're working on.
+3. **Read the last few entries before starting any new work** — they capture the most recent state of the repo and often surface "do not undo this" deviations.
+
+The previous log (`docs/DEVELOPMENT-LOG-archive.md`, ~3,300 lines) covers earlier history through mid-April 2026. Only consult the archive when you need historical context — the full screen-by-screen build narrative, early architecture decisions, or the backend API endpoint reference table.
+
+## Implementation Plan — Read When Starting Work
+
+**`docs/REMI-Technician-Implementation-Plan.md`** — The sequenced work plan for this codebase. Contains prioritized chunks with specific file paths, patterns to follow, and backend dependencies. When you're asked to work on a feature, check this plan first to see if it's already scoped as a chunk with implementation guidance.
+
+**Backend dependency note:** Many chunks in this plan depend on backend work landing first. The backend plan is at `/Users/jacegalloway/Documents/codebases/REMIBackend/docs/REMI-Backend-Implementation-Plan.md`. Check whether the required backend chunk is complete before starting dependent work here.
+
+## Build Guides — Read When Deciding What to Work On
+
+**`docs/REMI-Update-Guide.md`** — Features that exist across all codebases but are incomplete or missing depth. The REMITechnician section identifies specific screens and components that need improvement.
+
+**`docs/REMI-New-Build-Guide.md`** — Features that don't exist yet, organized by Production Plan phase. Items targeting this repo are marked.
+
+**`docs/REMI-PDF-Source-Index.md`** — Maps every feature back to its original ChatGPT conversation PDF. The PDFs live in the Docs workspace at `/Users/jacegalloway/Documents/Docs/docs/Original ChatGPT Convos PDFs/`.
+
+## Spec Documents — Read Before Building
+
+Three specification documents live in `docs/`. These are the governing source of truth for all product, design, and architecture decisions.
+
+### When to read each doc
+
+**`docs/REMI-UI-Design-Brief.md`** — Read when:
+- Building any new screen or component
+- Modifying navigation structure or tab layout
+- Designing a card, list, or dashboard layout
+- Working on the job execution flow (has full ASCII flow diagram)
+- Questions about status colors, design principles, or visual hierarchy
+- Building empty states or error states
+- Working on swipe gestures or touch interactions
+
+**`docs/REMI-Feature-Spec.md`** — Read when:
+- Building any specific feature or user flow
+- Defining form validation rules or business logic
+- Questions about the 8-step job execution flow behavior
+- Working on Order Manager (swipe actions, bulk mode, fleet tabs)
+- Working on CRM (search behavior, quick-add paths, health score)
+- Working on inventory (stock states, par levels, waste tracking)
+- Building any interaction that involves state transitions
+
+**`docs/REMI-Production-Plan.md`** — Read when:
+- Making architecture or technology decisions
+- Choosing between implementation approaches
+- Adding a new dependency or integration
+- Questions about the phased build plan or what belongs in which phase
+- Questions about auth patterns, state management, or API design
+
+## Rules for Using Documentation
+
+1. **Check the Design Brief before building any screen.** It has screen inventories, flow diagrams, and the exact tab/navigation structure.
+2. **Check the Feature Spec before inventing behavior.** Most business rules, edge cases, and interaction patterns are already defined.
+3. **Never contradict the Production Plan** without explicit user approval. Flag any conflicts.
+4. **Do not modify the three spec documents.** They are reference material. If something is outdated, note the discrepancy in the Development Log.
+
+## Mandatory Documentation Updates (After Every Significant Change)
+
+After completing any implementation plan item, new screen, component, or infrastructure change, update these three files:
+
+### 1. `docs/DEVELOPMENT-LOG.md` — What was built and why
+
+Append a new section at the bottom of the log following the **"How to write a new entry"** template at the top of `docs/DEVELOPMENT-LOG.md` itself. The template lives there so it stays next to the file you're editing.
+
+**When to update:** after completing any plan item (mark the item ID), new screen, new hook, new component, navigation change, dependency addition, or bug fix. Loose trigger — if the change is worth a PR, it's worth a log entry.
+
+### 2. `README.md` — Keep the screen and structure inventory accurate
+
+The README contains a `## Project Structure` section listing the app routes and source directories. When you:
+
+- **Add a new screen** → Add it to the `app/` route tree with a one-line description
+- **Add a new hook** → Add it to the `src/hooks/` section
+- **Add a new component** → Add it to the `src/components/` section if it's a significant shared component
+- **Add a new tab** → Update the tab navigator description
+- **Add a new dependency** → Add it to the Tech Stack section
+- **Change navigation structure** → Update the route tree
+
+Do NOT rewrite the README. Make targeted additions only.
+
+### 3. `DEMO-CODE.md` — Track demo-tagged code
+
+When you add or remove demo-specific code (anything tagged with `@demo-start`/`@demo-end` or `{/* @demo-start */}`/`{/* @demo-end */}`):
+
+- **Adding demo code:** Add the file to the tagged locations table with line ranges and description of what to remove
+- **Removing demo code:** Remove the corresponding entry from the manifest
+- **Adding production code near demo blocks:** If line numbers shift significantly, update the line references
+- **Adding a new screen with demo-only features:** Tag them clearly and document which parts are demo vs. production

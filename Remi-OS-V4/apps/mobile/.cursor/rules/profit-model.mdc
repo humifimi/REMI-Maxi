@@ -1,0 +1,65 @@
+---
+description: Rules for embedding the public Profit Model calculator inside REMITechnician
+globs:
+  - "app/(public)/profit-model/**/*"
+  - "app/(public)/profit-calculator/**/*"
+  - "app/profit-model/**/*"
+  - "src/components/profit-model/**/*"
+  - "src/screens/profit-model/**/*"
+  - "src/stores/profitModelStore.ts"
+  - "vendor/profit-model/**/*"
+  - "scripts/sync-profit-model.sh"
+alwaysApply: false
+---
+
+# Profit Model — REMITechnician
+
+Public calculator embedded in the technician app. Available **immediately on first launch**, before any sign-in or onboarding. Same engine source as the public web calculator (REMIDashboard).
+
+The engine **lives in REMIBackend** at `src/shared/profit-model/`. This repo consumes it by syncing the raw `.ts` source into `vendor/profit-model/` via `scripts/sync-profit-model.sh`. The vendored files are committed so iOS/Android builds work without REMIBackend present. (REMICustomer does NOT embed the calculator — customer-facing prospecting belongs on the public web.)
+
+## Source of Truth
+
+- **Spec:** `/Users/jacegalloway/Documents/Docs/docs/pdf-implementation-plans/plans/profit-model-v2-spec.md`
+- **Prompts:** `/Users/jacegalloway/Documents/Docs/docs/pdf-implementation-plans/agent-prompts/profit-model-prompts.md` (PM-5, PM-7)
+- **Walkthrough:** `/Users/jacegalloway/Documents/Docs/docs/pdf-implementation-plans/PROFIT-MODEL-WALKTHROUGH.md` (Stage 3)
+
+Read the matching spec section before coding. Never reinterpret formulas — they live in the engine and are covered by Jest tests over in REMIBackend.
+
+## Hard Rules
+
+1. **Never edit `vendor/profit-model/`.** Those files are auto-synced from REMIBackend's `src/shared/profit-model/`. To pull engine updates, run `npm run sync:profit-model`. Manual edits get overwritten on the next sync. If you find a bug in the engine, fix it in REMIBackend, then re-sync here.
+2. **Pre-auth route.** The screen must render outside the authenticated stack. Place the route under `app/(public)/profit-calculator/` (or equivalent group that bypasses the auth guard). On a fresh install, a user can open the app, tap "Profit Calculator," and see results without signing up.
+3. **No backend calls in P2.** The screen runs fully offline once the JS bundle loads. The engine is pure TS with zero dependencies — bundle it, don't fetch it.
+4. **Use the synced engine via path alias.** `import { calculate, defaults, encode, decode } from '@profit-model/index'`. Alias resolves to `vendor/profit-model/`. Don't reach into the vendor folder with relative paths.
+5. **Honor deep links.** The screen must accept a `?s=<encoded>` query param (or `remi://profit-model?s=<encoded>` deep link) and hydrate state from `decode()` before first render.
+6. **Native input handling.** Use proper numeric keyboards (`keyboardType="decimal-pad"`), debounce engine calls (~150ms), and never call `parseFloat` on raw `TextInput` values without sanitizing. The V1 Figma site had a documented input concatenation bug — don't repeat it.
+7. **Layout parity with web.** Same section order, same KPI tile labels, same Investment Summary metrics. Use accordions for input groups on phones; results stack vertically. A user comparing the web result to the mobile result should see identical numbers (because they're running the same engine).
+8. **Sharing uses native share sheet.** "Share scenario" calls `Share.share({ url: webShareUrl })` where `webShareUrl = https://app.remi.com/tools/profit-model?s=<encoded>`. Recipients open it on web by default.
+
+## Patterns
+
+- Screens go in `app/(public)/profit-calculator/` following Expo Router conventions.
+- Tile components in `src/components/profit-model/`. Reuse `Card`, typography, and color tokens from the existing design system — do not invent new ones.
+- State in a Zustand store at `src/stores/profitModelStore.ts`, wrapping the engine.
+- Charts use `react-native-svg-charts` or `victory-native` (whichever is already in `package.json`). Series come from `result.chart_series.*`.
+- The Metro bundler picks up `vendor/profit-model/*.ts` automatically. If you tweak `metro.config.js`, ensure no `resolver.blockList` excludes `vendor/`.
+
+## Sync Workflow
+
+When the engine changes in REMIBackend:
+
+1. `cd ~/Documents/codebases/REMITechnician`
+2. `npm run sync:profit-model` (overwrites `vendor/profit-model/`)
+3. Run `npx tsc --noEmit` (or the project's typecheck script) — flag any breakage from a contract change
+4. Commit `vendor/profit-model/` changes in the same PR as the consuming code change so reviewers see both sides of the diff
+
+If the sync script reports an error, REMIBackend probably isn't cloned at `../REMIBackend`. The script enforces a sibling-repo layout.
+
+## Don't
+
+- Don't gate the screen behind `useAuth()`. It must work for an anonymous user.
+- Don't store results on the device beyond the URL/deep-link state and SecureStore last-scenario in P2. Save/load (PM-6/PM-7) is opt-in and requires sign-in.
+- Don't mix sales tax into revenue tiles. "Cash Collected" is a separate panel (spec §6.4).
+- Don't fork the formulas inside `vendor/profit-model/` to match the broken V1 Figma site (spec §11 lists every bug we're explicitly fixing). Fix at the source — REMIBackend — then re-sync.
+- Don't gitignore `vendor/profit-model/`. It must be committed so iOS/Android release builds work without REMIBackend cloned (CI builders typically don't have sibling repos).

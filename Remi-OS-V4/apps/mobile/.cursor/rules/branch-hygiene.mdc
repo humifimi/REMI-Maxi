@@ -1,0 +1,100 @@
+---
+description: Always branch off the latest tip, never commit on main. The two rules that keep solo-dev branches from overlapping.
+alwaysApply: true
+---
+
+# Branch Hygiene
+
+This repo is now a solo-dev workflow. Two simple rules, enforced by hooks, replace the old master-plan chunk machinery:
+
+1. **Never commit on `main` or `master`.** Hooks deny it.
+2. **Branch off the latest work tip — wherever HEAD currently is — not stale `main`.** The helper script defaults to this.
+
+The 2026-04 chunk-ID system (`P0-BE-1`, `P2-FE-3`, branch-name-must-contain-chunk-ID, no-mixed-chunks-since-main, etc.) is **retired**. The master plan that motivated it is complete. Anything still referencing chunk IDs in old plan docs is historical.
+
+---
+
+## Starting a new branch
+
+Use the helper. It branches off whatever you're standing on right now — so if you're on a smoke branch with newer unmerged work, the new branch stacks on top automatically instead of reaching back to stale `main`:
+
+```bash
+./scripts/check-branch-chunk.sh --create <branch-name>
+```
+
+Examples:
+
+```bash
+./scripts/check-branch-chunk.sh --create fix/oauth-token-leak
+./scripts/check-branch-chunk.sh --create feat/branched-chains-phase-1
+./scripts/check-branch-chunk.sh --create docs/runbook-refresh
+```
+
+The branch name is yours to pick. Suggested prefixes (purely conventional, not enforced): `feat/`, `fix/`, `chore/`, `docs/`, `refactor/`, `smoke/`, `verify/`.
+
+If you genuinely want the new branch off `origin/main` instead of HEAD (rare — only when you're starting truly independent work from a clean base), check out main first:
+
+```bash
+git fetch origin && git checkout origin/main
+./scripts/check-branch-chunk.sh --create feat/something-independent
+```
+
+---
+
+## Committing
+
+Just `git commit` as usual. The hooks will block one thing and one thing only: committing directly on `main` or `master`. Anything else passes.
+
+Commit message format is up to you. Recommended (purely conventional, not enforced): [Conventional Commits](https://www.conventionalcommits.org/) — `fix(scope): subject`, `feat(scope): subject`, etc.
+
+---
+
+## If a hook denies a commit on `main`
+
+The error message tells you the recovery command. The short version:
+
+```bash
+./scripts/check-branch-chunk.sh --create <branch-name>
+# branches off HEAD (= main in this case), checks out, re-run your commit
+git commit -m "..."
+```
+
+---
+
+## What the helper script does
+
+`scripts/check-branch-chunk.sh`:
+
+- **`--create <name>`** — creates and checks out `<name>` off current HEAD. That's it.
+- **(no args)** — quick check: prints a warning if you're standing on `main` or `master`. Useful as a pre-flight before you start typing changes.
+- **`--help`** — prints usage.
+
+Old modes (`--create <CHUNK-ID> <slug>`, pre-flight chunk-ID validation, mixed-chunk detection) are gone.
+
+---
+
+## What the hooks enforce
+
+Two enforcement layers, both call the script under the hood. Both deny only one situation: commits on `main` or `master`.
+
+- **Cursor `beforeShellExecution`** (`.cursor/hooks/check-commit-branch.sh`) — fires when the Cursor agent runs `git commit` through the shell tool. Returns a deny payload with the recovery command.
+- **Git `commit-msg`** (`.githooks/commit-msg`) — fires on every `git commit` regardless of who invoked it (agent shell, Cursor source-control panel, terminal, etc.). Activated per-clone via `./scripts/install-hooks.sh`.
+
+If `.githooks/commit-msg` isn't installed yet (fresh clone), run `./scripts/install-hooks.sh` once. Idempotent.
+
+---
+
+## What this rule does NOT cover
+
+- **PR titles, descriptions, or stacked-PR base branches.** Use whatever makes sense; GitHub's UI is fine.
+- **Auto-rebasing.** Neither the script nor the hooks ever modify your branch. They only inspect.
+- **CI enforcement.** Local pre-flight aid only. GitHub will merge whatever you push.
+
+---
+
+## Reference
+
+- Script: `scripts/check-branch-chunk.sh` (`--help` for full usage).
+- Setup: `scripts/install-hooks.sh` — run once per clone to enable the git `commit-msg` hook.
+- Cursor hook: `.cursor/hooks/check-commit-branch.sh`, wired in `.cursor/hooks.json` under `beforeShellExecution` with matcher `\bgit\s+commit\b`.
+- Git hook: `.githooks/commit-msg`, activated via `git config core.hooksPath .githooks` (done by `install-hooks.sh`).

@@ -1,0 +1,176 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`AutoFixButton renders disabled with 'No auto-fix available' when no payload is supplied 1`] = `
+<View
+  accessibilityLabel="No auto-fix available"
+  accessibilityRole="button"
+  accessibilityState={
+    {
+      "busy": undefined,
+      "checked": undefined,
+      "disabled": true,
+      "expanded": undefined,
+      "selected": undefined,
+    }
+  }
+  accessibilityValue={
+    {
+      "max": undefined,
+      "min": undefined,
+      "now": undefined,
+      "text": undefined,
+    }
+  }
+  accessible={true}
+  collapsable={false}
+  focusable={true}
+  hitSlop={6}
+  onBlur={[Function]}
+  onClick={[Function]}
+  onFocus={[Function]}
+  onResponderGrant={[Function]}
+  onResponderMove={[Function]}
+  onResponderRelease={[Function]}
+  onResponderTerminate={[Function]}
+  onResponderTerminationRequest={[Function]}
+  onStartShouldSetResponder={[Function]}
+  style={
+    [
+      {
+        "alignSelf": "flex-start",
+        "borderRadius": 10,
+        "justifyContent": "center",
+        "minHeight": 44,
+        "paddingHorizontal": 14,
+        "paddingVertical": 10,
+      },
+      {
+        "backgroundColor": "#6B7280",
+        "opacity": 0.6,
+      },
+      false,
+    ]
+  }
+>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "gap": 8,
+      }
+    }
+  >
+    <Text
+      allowFontScaling={false}
+      selectable={false}
+      style={
+        [
+          {
+            "color": "#FFFFFF",
+            "fontSize": 16,
+          },
+          undefined,
+          {
+            "fontFamily": "material",
+            "fontStyle": "normal",
+            "fontWeight": "normal",
+          },
+          {},
+        ]
+      }
+    >
+      
+    </Text>
+    <Text
+      numberOfLines={1}
+      style={
+        {
+          "color": "#FFFFFF",
+          "fontSize": 14,
+          "fontWeight": "700",
+        }
+      }
+    >
+      No auto-fix available
+    </Text>
+  </View>
+</View>
+`;
+
+exports[`AutoFixButton renders enabled with 'Apply suggested fix' when a payload is supplied 1`] = `
+<View
+  accessibilityLabel="Apply suggested fix"
+  accessibilityRole="button"
+  accessibilityState={
+    {
+      "busy": undefined,
+      "checked": undefined,
+      "disabled": false,
+      "expanded": undefined,
+      "selected": undefined,
+    }
+  }
+  accessibilityValue={
+    {
+      "max": undefined,
+      "min": undefined,
+      "now": undefined,
+      "text": undefined,
+    }
+  }
+  accessible={true}
+  collapsable={false}
+  focusable={true}
+  hitSlop={6}
+  onBlur={[Function]}
+  onClick={[Function]}
+  onFocus={[Function]}
+  onResponderGrant={[Function]}
+  onResponderMove={[Function]}
+  onResponderRelease={[Function]}
+  onResponderTerminate={[Function]}
+  onResponderTerminationRequest={[Function]}
+  onStartShouldSetResponder={[Function]}
+  style={
+    [
+      {
+        "alignSelf": "flex-start",
+        "borderRadius": 10,
+        "justifyContent": "center",
+        "minHeight": 44,
+        "paddingHorizontal": 14,
+        "paddingVertical": 10,
+      },
+      {
+        "backgroundColor": "#3B82F6",
+      },
+      false,
+    ]
+  }
+>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "gap": 8,
+      }
+    }
+  >
+    <Text />
+    <Text
+      numberOfLines={1}
+      style={
+        {
+          "color": "#FFFFFF",
+          "fontSize": 14,
+          "fontWeight": "700",
+        }
+      }
+    >
+      Apply suggested fix
+    </Text>
+  </View>
+</View>
+`;

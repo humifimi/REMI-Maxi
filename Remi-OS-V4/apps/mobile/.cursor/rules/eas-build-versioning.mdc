@@ -1,0 +1,237 @@
+---
+description: Version bumping rules and deploy commands for EAS
+globs:
+  - "app.json"
+  - "eas.json"
+  - "package.json"
+  - "docs/BUILD-LOG.md"
+alwaysApply: false
+---
+
+# EAS Deploy & Version Management
+
+When the user asks to build, deploy, update, or "put it on EAS", follow the steps below in order. Do not skip steps.
+
+## Policy — no OTA shims
+
+This repo used to support an "OTA shim" pattern: when a native module was added, the import was wrapped in a `try { require(...) } catch` lazy-require so the JS could ship via `eas update` before the next full `eas build`. **That pattern is retired.** Reasons:
+
+- Every shim is a temporary cast that ages into a permanent dead branch unless someone remembers to clean it up.
+- Feature-detection at every call site fragmented UI behavior across binaries (button present on some devices, absent on others).
+- Native modules now ship reliably via `eas build`; the wait cost no longer justifies the maintenance surface.
+
+**The new policy is one bit:**
+
+- Pure JS/TS change → **`eas update`** (OTA).
+- Anything that touches native code, native config, or the binary in any way → **`eas build`**.
+
+No shims. No lazy-requires for native modules. No feature-detection around "is this module installed yet." A native module added in a commit means a full build before that commit's JS goes out — period.
+
+If you grep for `EAS-OTA-SHIM:` in source you'll find zero hits as of 2026-05-15. The marker is retired. If you ever see one introduced in a PR, that's an anti-pattern; replace it with a top-level import and the matching build.
+
+## Step 0 — OTA or full build?
+
+### 0a — Pure JS/TS change?
+
+If only JS/TS, styles, or assets changed (no `package.json` deps, no `app.json` plugins/permissions/ios/android config, no Expo SDK upgrade), use **`eas update`**. Skip to the OTA path.
+
+Check with `git diff --stat` against `origin/main` (or the last build commit if you know it).
+
+### 0b — Did a native package get added or removed?
+
+Native = anything that ships an iOS/Android module that has to be linked at build time. Most `expo-*` packages are native (clipboard, haptics, camera, etc.). Pure JS packages (lodash, axios, dayjs) are not — those are fine on OTA.
+
+If yes, **use `eas build`**. Top-level import the module, ship the build, that's it. No shim path exists.
+
+### 0c — Did `app.json` plugins, permissions, ios, or android config change?
+
+Use **`eas build`**. info.plist entries, AndroidManifest permissions, and Expo plugin config bake into the build.
+
+### 0d — Expo SDK upgrade?
+
+Always **`eas build`** — runtime version changes mean OTAs from older runtime versions can't land anyway.
+
+### 0e — No existing compatible build?
+
+If the device has nothing installed (or only an incompatible runtime version), **`eas build`** — there's no binary for an OTA to land on.
+
+### Tell the user which path you picked and why
+
+Before doing anything, say one sentence like *"Native module added, going to ship a full build."* The user should never be surprised by which path you chose.
+
+---
+
+# OTA Update Path (eas update)
+
+## U1 — Read the current version
+
+Use the Read tool to open `app.json`. Find `expo.version`. State it to the user.
+
+OTA updates do NOT bump the version or buildNumber — they deploy to devices already running the current version.
+
+## U2 — Commit
+
+Stage and commit all changes. Use a descriptive commit message. The update message will reference this.
+
+## U3 — Update
+
+Tell the user to run this in their own terminal:
+
+```bash
+eas update --branch preview --platform ios --message "Brief description of changes"
+```
+
+Replace the message with a short summary of what changed. The `--branch preview` targets devices running preview builds.
+
+**Always include `--platform ios`.** This project uses `react-native-maps` which cannot bundle for web. Omitting `--platform` causes EAS to export for all platforms including web, which will fail.
+
+**Do NOT run this with the agent's Shell tool, UNLESS user states they are on Cursor Remote/Mobile** The user needs to see the output and confirm success, and if you do run it because they are on mobile do not assume you should keep doing it, only do it when they explicitly ask, and if you do it for them present them with the link they need to use in your next response.
+
+## U4 — Confirm
+
+The update deploys instantly. Devices pick it up on the next app launch (or foreground, depending on config). No QR code or reinstall needed.
+
+### Runtime version mismatch
+
+OTA updates only land on builds with a **matching runtime version**. This project uses `"runtimeVersion": { "policy": "appVersion" }`, so the runtime version equals `expo.version`.
+
+If `expo.version` was bumped since the last installed build (e.g., app.json says 2.3.0 but the phone has a 2.2.0 build), the update will silently fail to land.
+
+**Fix:** Temporarily set `expo.version` back to the version on the device, publish the update, then restore the version. Steps:
+
+1. Run `eas build:list --platform ios --status finished --limit 1` to confirm the installed build's runtime version
+2. Edit `app.json` → set `expo.version` to that runtime version
+3. Tell the user to run the `eas update` command
+4. After success, restore `expo.version` to the current version
+
+**Do NOT commit the temporary version change.** It's only needed during the update publish.
+
+---
+
+# Full Build Path (eas build)
+
+## B1 — Check for existing builds
+
+Read all terminal files (`head -n 10 *.txt` in the terminals folder) and look for any running `eas build` commands. If a build is already in progress, tell the user and do NOT start another one.
+
+## B2 — Anti-shim sanity grep
+
+Run a single grep before the version bump to make sure no legacy shim slipped back in:
+
+```bash
+rg -n "EAS-OTA-SHIM:" --glob '!node_modules' --glob '!.expo' --glob '!.cursor' --glob '!docs/**'
+```
+
+Use the Grep tool, not the shell, so the results render inline. Expected output: **zero matches**. The marker was retired on 2026-05-15.
+
+If a match shows up anywhere in `src/` or `app/`:
+
+1. Surface the file + line to the user with the heading "shim regression — needs cleanup before build".
+2. Wait for explicit OK.
+3. Replace the `try { require(...) } catch` block with a top-level `import` and remove every feature-detect call site (the UI should not branch on "is this module installed").
+4. Run `tsc --noEmit` and the linter on the touched files.
+5. The cleanup goes into the **same commit** as the version bump in B5.
+
+Matches inside `docs/` or `.cursor/` are historical references and can be ignored — the grep excludes them by default.
+
+## B3 — Read the current version
+
+Use the Read tool to open `app.json`. Find the exact current values of:
+- `expo.version` (the app version string)
+- `expo.ios.buildNumber` (if it exists)
+
+State these values explicitly to the user before proceeding.
+
+## B4 — Determine the next version
+
+**Always bump PATCH (+0.0.1).** Per user direction 2026-05-21: every build, regardless of what changed, increments the patch segment by 1. No "MINOR for new features" judgment calls; no MAJOR bumps without an explicit user request that uses the word "major."
+
+Examples:
+- 2.5.0 → 2.5.1
+- 2.5.9 → 2.5.10 (do not roll to 2.6.0; patch keeps growing)
+- 2.5.99 → 2.5.100 (still fine; semver patch is unbounded)
+
+If the user explicitly asks for a MINOR or MAJOR bump (e.g., "bump it to 2.6.0", "this is v3.0.0"), honor that — but the default is always PATCH.
+
+Briefly state the chosen version to the user before proceeding (e.g., "Bumping 2.5.0 → 2.5.1.") — no need to justify the bump kind.
+
+## B5 — Write the new version
+
+Edit `app.json` with the StrReplace tool:
+1. Replace the `expo.version` value with the new version string
+2. If `expo.ios.buildNumber` exists, increment it by 1 (it should be a numeric string like "3", "4", etc.)
+
+After editing, re-read `app.json` to **verify** the new values were written correctly. Do not proceed until confirmed.
+
+## B6 — Commit BEFORE building
+
+Stage and commit ALL changes (any B2 shim-regression cleanup + B5 version bump + any other staged work, all in one commit — never separate commits for the version bump). Use a commit message that includes the new version number.
+
+**The version bump MUST be committed before running `eas build`.** EAS uploads the working tree, but the commit ensures the version is tracked in git and matches what gets built. Do NOT run the build command until the commit succeeds.
+
+## B7 — Build (only after B6 is committed)
+
+Tell the user to run this command in their own terminal:
+
+```bash
+eas build --profile preview --platform ios
+```
+
+**Do NOT run this command with the agent's Shell tool.** The Shell tool creates a hidden background process — the user cannot see or scan the QR code it prints. The user must run it in their own visible terminal so they get the interactive output, QR code, and install link.
+
+After telling the user the command, wait for them to confirm the build is done or share the install link.
+
+**The `--profile development` build is for Metro-attached dev iteration.** `expo-dev-client` is installed (re-added 2026-05-21 in v2.5.0; see DEVELOPMENT-LOG entry). Use `eas build --profile development --platform ios` to produce a dev-client build; install it, then run `npx expo start --dev-client` on your Mac and open the dev-client app on your phone to connect. JS edits hot-reload in 1–2 seconds without any OTA publish. Native deps still require a rebuild.
+
+### Build timing
+
+The build takes **5-10 minutes** on EAS servers. The command will sit at "Waiting for build to complete" — this is normal. When it finishes, it prints a QR code and an install link directly in the user's terminal.
+
+## B8 — Update docs
+
+After a successful build or update:
+
+1. Append a new entry to **`docs/BUILD-LOG.md`** (newest at the top). Include version + build number, date, and why a full build was needed (which native module changes triggered it).
+2. Update the "Current Version" line **in this rule** to reflect the version that was just built.
+3. Append a short cross-reference entry to `docs/DEVELOPMENT-LOG.md` (version number + one-line summary + link to the BUILD-LOG entry) so the dev log narrative stays continuous.
+
+---
+
+## Adding a native module — short version
+
+When you (the agent) add a new native module via `expo install <pkg>`:
+
+1. Top-level `import` it like any other module.
+2. Tell the user *"Adding `<pkg>` — native module, so the next ship is a full `eas build`, not an OTA."*
+3. Bump the version per §B4 and run the full build flow.
+4. No shim. No lazy-require. No feature-detect. The app simply doesn't have that capability until the next binary lands.
+
+## Reference
+
+### Install link format
+
+`https://expo.dev/accounts/jace88/projects/REMITechnician/builds/<build-id>`
+
+### Cancelling a build
+
+```bash
+eas build:cancel <build-id>
+```
+
+### Build profiles
+
+| Profile | Use case | Status |
+|---------|----------|--------|
+| `development` | Metro-attached dev-client build for fast JS iteration on a real device | Use for chip-bar / map / any heavy iteration work |
+| `preview` | Internal testing on devices (ad-hoc .ipa) | **Default for distribution / demo** |
+| `production` | App Store / Play Store submission | Use `eas submit` after |
+
+The `development` profile was removed 2026-04-25 and restored 2026-05-21 (v2.5.0) when the map / chip-bar iteration loop became too painful via OTA. If a future cleanup wants to remove it again, also remove `expo-dev-client` from `package.json` in the same change so the profile doesn't bit-rot in `eas.json`.
+
+### Current Version
+
+**2.5.6 — build 24 (iOS Google Maps fix: react-native-maps config plugin entry + dep bump 1.20.1 → 1.27.2)** — cut 2026-05-25. v2.5.5 build 23 set `ios.config.googleMapsApiKey` in `app.config.js` but did NOT add `"react-native-maps"` to the `plugins` array, so the native iOS build linked the Apple-Maps-only variant of `react-native-maps`. Runtime logged `react-native-maps: AirGoogleMaps dir must be added to your xCode project to support GoogleMaps on iOS` on every `<MapView provider={PROVIDER_GOOGLE}>` render, and the map showed an error overlay instead of tiles. This build (a) bumps `react-native-maps` from `1.20.1` → `1.27.2` because the config plugin (`app.plugin.js`) only ships on `react-native-maps@1.22+`, and (b) adds the missing `["react-native-maps", { iosGoogleMapsApiKey }]` plugin entry, which triggers Expo's prebuild step to inject AirGoogleMaps into the Podfile. Both pieces (the `ios.config.googleMapsApiKey` from build 23 AND the new plugin entry) are required. The plugin's `iosGoogleMapsApiKey` option is set defensively alongside the ios.config one because both write `GMSApiKey` to Info.plist; with the same value it's idempotent. Expo's compatibility matrix still pins `react-native-maps@1.20.1` for SDK 54, but that's stale matrix data — the upstream 1.27.x line ships the SDK-53+ plugin that Expo's own MapView docs assume exists. Native config change + native dep bump requires the full build per Step 0c (or a local `npx expo run:ios --device` rebuild — see below). Bump from here for the next build. OTA updates should target this runtime version.
+
+**Local rebuild path (no EAS):** for this kind of native-config-only change, `npx expo run:ios --device` is equivalent to `eas build --profile development --platform ios` but runs on your Mac (no EAS credit, ~15 min cold). It does `expo prebuild` → `pod install` → `xcodebuild` → installs the resulting dev-client `.app` onto the connected iPhone → connects to your existing Metro at :8081. Subsequent JS edits still hot-reload via Metro just like a cloud-built dev-client. The auto-generated `ios/` directory is gitignored (CNG pattern). Use the EAS path instead when you need an IPA to distribute (preview / production profiles).
+
+The historical build log (which version shipped on what date, which native modules it linked) lives in [`docs/BUILD-LOG.md`](../../docs/BUILD-LOG.md). Step B8 of the full-build path appends a new entry there, not here.
